@@ -438,23 +438,9 @@ def init_scheduler():
             continue
         
         try:
-            # 解析cron表达式 (分 时 日 月 周)
-            parts = cron_expr.split()
-            if len(parts) != 5:
-                logger.error(f"Invalid cron expression for task '{task_name}': {cron_expr}")
-                continue
-            
-            minute, hour, day, month, day_of_week = parts
-            
-            # 创建触发器
-            trigger = CronTrigger(
-                minute=minute,
-                hour=hour,
-                day=day,
-                month=month,
-                day_of_week=day_of_week,
-                timezone='Asia/Shanghai'
-            )
+            # 使用from_crontab方法解析标准crontab表达式 (分 时 日 月 周)
+            # 这样可以正确处理数字格式的day_of_week (如 1-5 代表周一到周五)
+            trigger = CronTrigger.from_crontab(cron_expr, timezone='Asia/Shanghai')
             
             # 添加任务
             scheduler.add_job(
