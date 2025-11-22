@@ -440,6 +440,7 @@ def init_scheduler():
         try:
             # 使用from_crontab方法解析标准crontab表达式 (分 时 日 月 周)
             # 这样可以正确处理数字格式的day_of_week (如 1-5 代表周一到周五)
+            # 注意如果要定义周五的计划任务，不能写5，要写FRI
             trigger = CronTrigger.from_crontab(cron_expr, timezone='Asia/Shanghai')
             
             # 添加任务
@@ -602,3 +603,4 @@ if __name__ == '__main__':
         if scheduler:
             scheduler.shutdown()
         logger.info("Server stopped")
+
