@@ -10,8 +10,6 @@ WECHAT_API_URL = "http://127.0.0.1:7777/qianxun/httpapi"
 WXID = "wxid_alwc6m6hw4rs22"
 TARGET_WXID = "19986814732@chatroom"
 IP_FILE = "current_ip.txt"
-CHECK_INTERVAL = 60  # 10分钟 = 600秒
-
 def get_current_ip():
     """获取当前IP地址"""
     try:
@@ -79,55 +77,41 @@ def send_wechat_message(new_ip):
 def main():
     """主函数"""
     print(f"[{datetime.now()}] IP地址监控程序启动")
-    print(f"检查间隔: {CHECK_INTERVAL}秒 ({CHECK_INTERVAL//60}分钟)")
     print("-" * 60)
     
-    # 首次运行：获取并保存IP
-    stored_ip = read_stored_ip()
-    if stored_ip is None:
-        print(f"[{datetime.now()}] 首次运行，获取初始IP地址...")
-        current_ip = get_current_ip()
-        if current_ip:
-            save_ip(current_ip)
-            print(f"[{datetime.now()}] 初始IP地址: {current_ip}")
-        else:
-            print(f"[{datetime.now()}] 无法获取初始IP地址，程序退出")
-            return
-    else:
-        print(f"[{datetime.now()}] 当前存储的IP地址: {stored_ip}")
+    # 获取当前IP地址
+    print(f"[{datetime.now()}] 开始检查IP地址...")
+    current_ip = get_current_ip()
     
-    # 循环检查IP变化
-    while True:
-        try:
-            time.sleep(CHECK_INTERVAL)
-            
-            print(f"[{datetime.now()}] 开始检查IP地址...")
-            current_ip = get_current_ip()
-            
-            if current_ip is None:
-                print(f"[{datetime.now()}] 跳过本次检查")
-                continue
-            
-            stored_ip = read_stored_ip()
-            
-            if current_ip != stored_ip:
-                print(f"[{datetime.now()}] IP地址发生变化!")
-                print(f"  旧IP: {stored_ip}")
-                print(f"  新IP: {current_ip}")
-                
-                # 保存新IP
-                if save_ip(current_ip):
-                    # 发送微信通知
-                    send_wechat_message(current_ip)
-            else:
-                print(f"[{datetime.now()}] IP地址未变化: {current_ip}")
+    if current_ip is None:
+        print(f"[{datetime.now()}] 无法获取IP地址，程序退出")
+        return
+    
+    print(f"[{datetime.now()}] 当前IP地址: {current_ip}")
+    
+    # 读取存储的IP
+    stored_ip = read_stored_ip()
+    
+    if stored_ip is None:
+        # 首次运行，保存IP
+        print(f"[{datetime.now()}] 首次运行，保存初始IP地址")
+        save_ip(current_ip)
+    elif current_ip != stored_ip:
+        # IP地址发生变化
+        print(f"[{datetime.now()}] IP地址发生变化!")
+        print(f"  旧IP: {stored_ip}")
+        print(f"  新IP: {current_ip}")
         
-        except KeyboardInterrupt:
-            print(f"\n[{datetime.now()}] 程序被用户中断")
-            break
-        except Exception as e:
-            print(f"[{datetime.now()}] 发生异常: {e}")
-            continue
+        # 保存新IP
+        if save_ip(current_ip):
+            # 发送微信通知
+            send_wechat_message(current_ip)
+    else:
+        # IP地址未变化
+        print(f"[{datetime.now()}] IP地址未变化")
+    
+    print(f"[{datetime.now()}] 程序执行完成")
+    print("-" * 60)
 
 if __name__ == "__main__":
     main()
