@@ -16,7 +16,7 @@ LOG_FILE_PATH = "/root/one-api/oneapi.log"
 # 微信接口配置
 WECHAT_API_URL = "http://office.3-uni.net:7777/qianxun/httpapi"
 WECHAT_WXID = "wxid_alwc6m6hw4rs22"
-WECHAT_CHATROOM = "48138693151@chatroom"
+WECHAT_CHATROOM = "34412824967@chatroom"
 
 
 def send_wechat_message(message):
@@ -68,12 +68,10 @@ def check_log_file():
         with open(LOG_FILE_PATH, 'r', encoding='utf-8', errors='ignore') as f:
             lines = f.readlines()
         
-        print(f"[{datetime.now()}] 读取日志文件，共 {len(lines)} 行")
+        print(f"[{datetime.now()}] 读取日志文件,共 {len(lines)} 行")
         
-        # 检查是否有匹配关键字的行
-        found_keyword = False
-        matched_keyword = ""
-        matched_line = ""
+        # 检查所有匹配关键字的行
+        matched_lines = []
         
         for line in lines:
             line_stripped = line.strip()
@@ -83,20 +81,16 @@ def check_log_file():
             # 检查是否匹配任何关键字
             for keyword in KEYWORDS:
                 if keyword.lower() in line_stripped.lower():
-                    found_keyword = True
-                    matched_keyword = keyword
-                    matched_line = line_stripped
+                    matched_lines.append(line_stripped)
                     print(f"[{datetime.now()}] 匹配到关键字 '{keyword}': {line_stripped[:100]}...")
-                    break
-            
-            if found_keyword:
-                break
+                    break  # 每行只匹配一次
         
-        # 如果发现匹配的关键字，发送整个日志文件内容
-        if found_keyword:
-            full_content = ''.join(lines)
-            print(f"[{datetime.now()}] 准备发送完整日志内容，共 {len(lines)} 行")
-            send_wechat_message(full_content)
+        # 如果发现匹配的关键字，发送所有匹配的行
+        if matched_lines:
+            # 将所有匹配的行合并成一条消息
+            message = '\n'.join(matched_lines)
+            print(f"[{datetime.now()}] 准备发送 {len(matched_lines)} 行匹配内容")
+            send_wechat_message(message)
         else:
             print(f"[{datetime.now()}] 未发现匹配关键字的内容")
             
