@@ -10,6 +10,9 @@ from datetime import datetime
 # 关键字配置（可以根据需要修改）
 KEYWORDS = ["error", "failed", "异常", "ERROR"]  # 支持多个关键字
 
+# 黑名单关键字配置（匹配到关键字的行中如果包含黑名单关键字，则不发送该行）
+BLACKLIST_KEYWORDS = ["[GetModelRatio] model ratio not found:", "已忽略", "test"]  # 支持多个黑名单关键字
+
 # 日志文件路径
 LOG_FILE_PATH = "/root/one-api/oneapi.log"
 
@@ -79,20 +82,39 @@ def check_log_file():
                 continue
             
             # 检查是否匹配任何关键字
+            is_matched = False
+            matched_keyword = ""
             for keyword in KEYWORDS:
                 if keyword.lower() in line_stripped.lower():
-                    matched_lines.append(line_stripped)
-                    print(f"[{datetime.now()}] 匹配到关键字 '{keyword}': {line_stripped[:100]}...")
+                    is_matched = True
+                    matched_keyword = keyword
                     break  # 每行只匹配一次
+            
+            # 如果匹配到关键字，再检查是否包含黑名单关键字
+            if is_matched:
+                # 检查是否包含黑名单关键字
+                is_blacklisted = False
+                blacklist_keyword = ""
+                for bl_keyword in BLACKLIST_KEYWORDS:
+                    if bl_keyword.lower() in line_stripped.lower():
+                        is_blacklisted = True
+                        blacklist_keyword = bl_keyword
+                        break
+                
+                if is_blacklisted:
+                    print(f"[{datetime.now()}] 匹配到关键字 '{matched_keyword}' 但包含黑名单 '{blacklist_keyword}'，跳过: {line_stripped[:100]}...")
+                else:
+                    matched_lines.append(line_stripped)
+                    print(f"[{datetime.now()}] 匹配到关键字 '{matched_keyword}': {line_stripped[:100]}...")
         
-        # 如果发现匹配的关键字，发送所有匹配的行
+        # 如果发现匹配的行，发送所有匹配的行
         if matched_lines:
             # 将所有匹配的行合并成一条消息
             message = '\n'.join(matched_lines)
             print(f"[{datetime.now()}] 准备发送 {len(matched_lines)} 行匹配内容")
             send_wechat_message(message)
         else:
-            print(f"[{datetime.now()}] 未发现匹配关键字的内容")
+            print(f"[{datetime.now()}] 未发现符合条件的内容")
             
     except FileNotFoundError:
         print(f"[{datetime.now()}] 日志文件不存在: {LOG_FILE_PATH}")
