@@ -27,7 +27,7 @@ def load_config():
             "default": {
                 "api_url": "http://192.168.1.25:54321/v1/chat-messages",
                 "api_key": "app-ilRkWu2ERmqJmB1EQDkwLuyM",
-                "timeout": 60,
+                "timeout": 200,
                 "description": "默认Dify应用(用于未配置的群聊和所有私聊)"
             },
             "group_mapping": {}
@@ -254,6 +254,76 @@ def send_weixin_text(target_wxid, message_content, bot_wxid):
         logger.error(f"WeChat API request failed: {str(e)}")
         return False
 
+def send_weixin_image(target_wxid, image_url, bot_wxid):
+    """
+    发送微信图片消息(通过URL)
+    """
+    import hashlib
+    import time
+    
+    # 根据URL和时间戳生成唯一文件名
+    timestamp = str(int(time.time() * 1000))
+    url_hash = hashlib.md5(image_url.encode()).hexdigest()[:8]
+    file_name = f"image_{timestamp}_{url_hash}.jpg"
+    
+    data = {
+        "type": "sendImage",
+        "data": {
+            "wxid": target_wxid,
+            "path": image_url,
+            "fileName": file_name
+        }
+    }
+    
+    params = {
+        "wxid": bot_wxid
+    }
+    
+    try:
+        logger.info(f"Sending image to {target_wxid}: {image_url}")
+        response = requests.post(WEIXIN_API_URL, json=data, params=params)
+        response.raise_for_status()
+        
+        result = response.json()
+        if result.get('code') == 200:
+            logger.info(f"Image sent successfully: {file_name}")
+            return True
+        else:
+            logger.error(f"Image sending failed: {result.get('msg')}")
+            return False
+            
+    except requests.exceptions.RequestException as e:
+        logger.error(f"WeChat API request failed: {str(e)}")
+        return False
+
+def extract_and_send_images(message_content, target_wxid, bot_wxid):
+    """
+    从消息中提取![Generated Image](URL)格式的图片URL并发送
+    返回: 发送的图片数量
+    """
+    import re
+    
+    # 匹配 ![Generated Image](URL) 格式
+    pattern = r'!\[Generated Image\]\((https?://[^\)]+)\)'
+    matches = re.findall(pattern, message_content)
+    
+    if not matches:
+        logger.info("No generated images found in message")
+        return 0
+    
+    logger.info(f"Found {len(matches)} generated image(s) in message")
+    
+    success_count = 0
+    for idx, image_url in enumerate(matches, 1):
+        logger.info(f"Sending image {idx}/{len(matches)}: {image_url[:100]}...")
+        if send_weixin_image(target_wxid, image_url, bot_wxid):
+            success_count += 1
+        else:
+            logger.error(f"Failed to send image {idx}/{len(matches)}")
+    
+    logger.info(f"Successfully sent {success_count}/{len(matches)} image(s)")
+    return success_count
+
 def parse_refer_message(msg):
     """
     解析XML格式的引用消息,提取title和refermsg中的content
@@ -401,6 +471,8 @@ def execute_scheduled_task(task):
                 
                 if success:
                     logger.info(f"Task '{task_name}' executed successfully for group {group_wxid}")
+                    # 检查并发送消息中的图片
+                    extract_and_send_images(dify_reply, group_wxid, BOT_WXID)
                 else:
                     logger.error(f"Task '{task_name}' failed to send message to group {group_wxid}")
                     
@@ -440,7 +512,6 @@ def init_scheduler():
         try:
             # 使用from_crontab方法解析标准crontab表达式 (分 时 日 月 周)
             # 这样可以正确处理数字格式的day_of_week (如 1-5 代表周一到周五)
-            # 注意如果要定义周五的计划任务，不能写5，要写FRI
             trigger = CronTrigger.from_crontab(cron_expr, timezone='Asia/Shanghai')
             
             # 添加任务
@@ -543,7 +614,11 @@ def wechat_callback():
             msg_id = data_info['msgId']  # 原消息ID(用于引用回复)
             success = send_weixin_reply(target_wxid, dify_reply, msg_id, effective_bot_wxid)
             
-            # 9. 返回处理结果
+            # 9. 检查并发送消息中的图片
+            if success:
+                extract_and_send_images(dify_reply, target_wxid, effective_bot_wxid)
+            
+            # 10. 返回处理结果
             if success:
                 return jsonify({"status": "processed"})
             else:
@@ -603,4 +678,3 @@ if __name__ == '__main__':
         if scheduler:
             scheduler.shutdown()
         logger.info("Server stopped")
-
