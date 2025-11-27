@@ -1,30 +1,4 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
-import time
-import requests
-import json
-from datetime import datetime
-
-# ===== 全局配置 =====
-# 关键字配置（可以根据需要修改）
-KEYWORDS = ["error", "failed", "异常", "ERROR"]  # 支持多个关键字
-
-# 黑名单关键字配置（匹配到关键字的行中如果包含黑名单关键字，则不发送该行）
-BLACKLIST_KEYWORDS = ["[GetModelRatio] model ratio not found:", "已忽略", "test"]  # 支持多个黑名单关键字
-
-# 日志文件路径
-LOG_FILE_PATH = "/root/one-api/oneapi.log"
-
-# 微信接口配置
-WECHAT_API_URL = "http://office.3-uni.net:7777/qianxun/httpapi"
-WECHAT_WXID = "wxid_alwc6m6hw4rs22"
-WECHAT_CHATROOM = "34412824967@chatroom"
-
-
-def send_wechat_message(message):
-    """
-    发送微信消息
     :param message: 要发送的消息内容
     :return: 是否发送成功
     """
