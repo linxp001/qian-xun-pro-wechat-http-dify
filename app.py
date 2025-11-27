@@ -296,6 +296,48 @@ def send_weixin_image(target_wxid, image_url, bot_wxid):
         logger.error(f"WeChat API request failed: {str(e)}")
         return False
 
+def send_weixin_file(target_wxid, file_url, bot_wxid, file_extension='.mp4'):
+    """
+    发送微信文件消息(通过URL)
+    """
+    import hashlib
+    import time
+    
+    # 根据URL和时间戳生成唯一文件名
+    timestamp = str(int(time.time() * 1000))
+    url_hash = hashlib.md5(file_url.encode()).hexdigest()[:16]
+    file_name = f"{url_hash}_{timestamp}{file_extension}"
+    
+    data = {
+        "type": "sendFile",
+        "data": {
+            "wxid": target_wxid,
+            "path": file_url,
+            "fileName": file_name
+        }
+    }
+    
+    params = {
+        "wxid": bot_wxid
+    }
+    
+    try:
+        logger.info(f"Sending file to {target_wxid}: {file_url}")
+        response = requests.post(WEIXIN_API_URL, json=data, params=params)
+        response.raise_for_status()
+        
+        result = response.json()
+        if result.get('code') == 200:
+            logger.info(f"File sent successfully: {file_name}")
+            return True
+        else:
+            logger.error(f"File sending failed: {result.get('msg')}")
+            return False
+            
+    except requests.exceptions.RequestException as e:
+        logger.error(f"WeChat API request failed: {str(e)}")
+        return False
+
 def extract_and_send_images(message_content, target_wxid, bot_wxid):
     """
     从消息中提取![Generated Image](URL)格式的图片URL并发送
@@ -322,6 +364,34 @@ def extract_and_send_images(message_content, target_wxid, bot_wxid):
             logger.error(f"Failed to send image {idx}/{len(matches)}")
     
     logger.info(f"Successfully sent {success_count}/{len(matches)} image(s)")
+    return success_count
+
+def extract_and_send_videos(message_content, target_wxid, bot_wxid):
+    """
+    从消息中提取[点击下载视频](URL)格式的视频URL并发送
+    返回: 发送的视频数量
+    """
+    import re
+    
+    # 匹配 [点击下载视频](URL) 格式
+    pattern = r'\[点击下载视频\]\((https?://[^\)]+)\)'
+    matches = re.findall(pattern, message_content)
+    
+    if not matches:
+        logger.info("No videos found in message")
+        return 0
+    
+    logger.info(f"Found {len(matches)} video(s) in message")
+    
+    success_count = 0
+    for idx, video_url in enumerate(matches, 1):
+        logger.info(f"Sending video {idx}/{len(matches)}: {video_url[:100]}...")
+        if send_weixin_file(target_wxid, video_url, bot_wxid, file_extension='.mp4'):
+            success_count += 1
+        else:
+            logger.error(f"Failed to send video {idx}/{len(matches)}")
+    
+    logger.info(f"Successfully sent {success_count}/{len(matches)} video(s)")
     return success_count
 
 def parse_refer_message(msg):
@@ -466,14 +536,16 @@ def execute_scheduled_task(task):
                 # 发送prompt到Dify获取回复
                 dify_reply = send_to_dify(prompt, group_wxid)
                 
-                # 检查消息中是否包含图片
+                # 检查消息中是否包含图片或视频
                 has_generated_images = '![Generated Image]' in dify_reply
+                has_videos = '[点击下载视频]' in dify_reply
                 
-                if has_generated_images:
-                    # 如果包含生成的图片,只发送图片,不发送文本消息
-                    logger.info(f"Task '{task_name}' message contains generated images, sending images only")
+                if has_generated_images or has_videos:
+                    # 如果包含生成的图片或视频,只发送图片/视频,不发送文本消息
+                    logger.info(f"Task '{task_name}' message contains generated images or videos, sending media only")
                     image_count = extract_and_send_images(dify_reply, group_wxid, BOT_WXID)
-                    success = image_count > 0
+                    video_count = extract_and_send_videos(dify_reply, group_wxid, BOT_WXID)
+                    success = (image_count + video_count) > 0
                 else:
                     # 普通消息,发送文本
                     success = send_weixin_text(group_wxid, dify_reply, BOT_WXID)
@@ -620,14 +692,16 @@ def wechat_callback():
             # 8. 发送微信回复
             msg_id = data_info['msgId']  # 原消息ID(用于引用回复)
             
-            # 检查消息中是否包含图片
+            # 检查消息中是否包含图片或视频
             has_generated_images = '![Generated Image]' in dify_reply
+            has_videos = '[点击下载视频]' in dify_reply
             
-            if has_generated_images:
-                # 如果包含生成的图片,只发送图片,不发送文本消息
-                logger.info("Message contains generated images, sending images only")
+            if has_generated_images or has_videos:
+                # 如果包含生成的图片或视频,只发送图片/视频,不发送文本消息
+                logger.info("Message contains generated images or videos, sending media only")
                 image_count = extract_and_send_images(dify_reply, target_wxid, effective_bot_wxid)
-                success = image_count > 0  # 只要有图片发送成功就算成功
+                video_count = extract_and_send_videos(dify_reply, target_wxid, effective_bot_wxid)
+                success = (image_count + video_count) > 0  # 只要有媒体文件发送成功就算成功
             else:
                 # 普通消息,发送引用回复
                 success = send_weixin_reply(target_wxid, dify_reply, msg_id, effective_bot_wxid)
