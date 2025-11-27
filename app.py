@@ -27,7 +27,7 @@ def load_config():
             "default": {
                 "api_url": "http://192.168.1.25:54321/v1/chat-messages",
                 "api_key": "app-ilRkWu2ERmqJmB1EQDkwLuyM",
-                "timeout": 60,
+                "timeout": 60, #改这里没用哈，得去改config.json
                 "description": "默认Dify应用(用于未配置的群聊和所有私聊)"
             },
             "group_mapping": {}
