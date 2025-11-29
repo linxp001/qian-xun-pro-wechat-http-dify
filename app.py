@@ -8,6 +8,7 @@ from datetime import datetime
 import os
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+import re
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -97,11 +98,12 @@ def get_dify_config(wxid):
     
     return dify_config
 
-def send_to_dify(query_text, from_wxid):
+def send_to_dify(query_text, from_wxid, reset_conversation=False):
     """
     发送消息到Dify并获取回复
     遇到404错误时会自动去掉conversation_id重试一次
     根据from_wxid自动选择对应的Dify配置
+    :param reset_conversation: 是否强制重置会话(即使用空conversation_id)
     """
     # 获取该wxid对应的Dify配置
     dify_config = get_dify_config(from_wxid)
@@ -116,7 +118,12 @@ def send_to_dify(query_text, from_wxid):
     
     # 获取该用户的会话ID
     with session_locks[from_wxid]:
-        conversation_id = conversations.get(from_wxid, "")
+        # 如果要求重置会话，则使用空字符串；否则使用存储的ID
+        if reset_conversation:
+            conversation_id = ""
+            logger.info(f"Forced new conversation for user {from_wxid}")
+        else:
+            conversation_id = conversations.get(from_wxid, "")
         
         data = {
             "inputs": {},
@@ -238,16 +245,16 @@ def send_weixin_text(target_wxid, message_content, bot_wxid):
     }
     
     try:
-        logger.info(f"Sending scheduled message to {target_wxid}")
+        logger.info(f"Sending text message to {target_wxid}")
         response = requests.post(WEIXIN_API_URL, json=data, params=params)
         response.raise_for_status()
         
         result = response.json()
         if result.get('code') == 200:
-            logger.info("Scheduled message sent successfully")
+            logger.info("Text message sent successfully")
             return True
         else:
-            logger.error(f"Scheduled message failed: {result.get('msg')}")
+            logger.error(f"Text message failed: {result.get('msg')}")
             return False
             
     except requests.exceptions.RequestException as e:
@@ -343,8 +350,6 @@ def extract_and_send_images(message_content, target_wxid, bot_wxid):
     从消息中提取![Generated Image](URL)格式的图片URL并发送
     返回: 发送的图片数量
     """
-    import re
-    
     # 匹配 ![Generated Image](URL) 格式
     pattern = r'!\[Generated Image\]\((https?://[^\)]+)\)'
     matches = re.findall(pattern, message_content)
@@ -371,8 +376,6 @@ def extract_and_send_videos(message_content, target_wxid, bot_wxid):
     从消息中提取[点击下载视频](URL)格式的视频URL并发送
     返回: 发送的视频数量
     """
-    import re
-    
     # 匹配 [点击下载视频](URL) 格式
     pattern = r'\[点击下载视频\]\((https?://[^\)]+)\)'
     matches = re.findall(pattern, message_content)
@@ -442,7 +445,6 @@ def process_group_message(message_data, bot_wxid):
     - query_text: 需要发送给Dify的内容,None表示忽略消息
     - direct_reply: 直接回复的内容,不需要经过Dify
     """
-    import re
     data_info = message_data['data']['data']
     msg = data_info['msg']
     
@@ -450,8 +452,12 @@ def process_group_message(message_data, bot_wxid):
     is_mentioned = bot_wxid in data_info.get('atWxidList', [])
     has_keyword = any(keyword in msg for keyword in TRIGGER_KEYWORDS)
     
-    if not is_mentioned and not has_keyword:
-        return None, None  # 既没@也没关键词,忽略
+    # 检查是否为简单的表情符号: [两个汉字]
+    # 正则匹配: 以[开头, 两个中文字符, 以]结尾
+    is_simple_emoji = bool(re.match(r'^\[[\u4e00-\u9fa5]{2}\]$', msg.strip()))
+    
+    if not is_mentioned and not has_keyword and not is_simple_emoji:
+        return None, None  # 既没@也没关键词且不是表情包,忽略
     
     # 2. 尝试解析XML格式的引用消息
     parsed_refer = parse_refer_message(msg)
@@ -683,8 +689,12 @@ def wechat_callback():
                 logger.info("Sending direct reply without Dify")
                 dify_reply = direct_reply
             elif query_text:
+                # 检查输入是否为[两个汉字]的表情格式,如果是,则重置会话
+                is_input_emoji = bool(re.match(r'^\[[\u4e00-\u9fa5]{2}\]$', query_text.strip()))
+                
                 # 7. 发送到Dify获取回复
-                dify_reply = send_to_dify(query_text, target_wxid)
+                # 如果是表情包触发,强制reset_conversation=True (创建新会话/不带conversation_id)
+                dify_reply = send_to_dify(query_text, target_wxid, reset_conversation=is_input_emoji)
             else:
                 logger.warning("Empty query text after processing")
                 return jsonify({"status": "error", "message": "Empty query text"})
@@ -696,12 +706,19 @@ def wechat_callback():
             has_generated_images = '![Generated Image]' in dify_reply
             has_videos = '[点击下载视频]' in dify_reply
             
+            # 检查回复是否为[两个汉字]的表情格式
+            is_output_emoji = bool(re.match(r'^\[[\u4e00-\u9fa5]{2}\]$', dify_reply.strip()))
+            
             if has_generated_images or has_videos:
                 # 如果包含生成的图片或视频,只发送图片/视频,不发送文本消息
                 logger.info("Message contains generated images or videos, sending media only")
                 image_count = extract_and_send_images(dify_reply, target_wxid, effective_bot_wxid)
                 video_count = extract_and_send_videos(dify_reply, target_wxid, effective_bot_wxid)
                 success = (image_count + video_count) > 0  # 只要有媒体文件发送成功就算成功
+            elif is_output_emoji:
+                # 如果是表情包回复,直接发送文本,不使用引用回复
+                logger.info("Dify reply is a simple emoji, sending direct text")
+                success = send_weixin_text(target_wxid, dify_reply, effective_bot_wxid)
             else:
                 # 普通消息,发送引用回复
                 success = send_weixin_reply(target_wxid, dify_reply, msg_id, effective_bot_wxid)
