@@ -11,7 +11,7 @@ from datetime import datetime
 KEYWORDS = ["error", "failed", "异常", "[GIN]"]  # 支持多个关键字
 
 # 黑名单关键字配置（匹配到关键字的行中如果包含黑名单关键字，则不发送该行）
-BLACKLIST_KEYWORDS = ["[GetModelRatio]", "[getTokenEncoder]", "| 200 |", "已忽略", "test"]  # 支持多个黑名单关键字
+BLACKLIST_KEYWORDS = ["[GetModelRatio]", "[getTokenEncoder]", "securecookie", "测试", "| 200 |", "已忽略", "test"]  # 支持多个黑名单关键字
 
 # 日志文件路径
 LOG_FILE_PATH = "/root/one-api/oneapi.log"
