@@ -4,14 +4,15 @@
 import time
 import requests
 import json
+import re
 from datetime import datetime
 
 # ===== 全局配置 =====
 # 关键字配置（可以根据需要修改）
-KEYWORDS = ["error", "failed", "异常", "[GIN]"]  # 支持多个关键字
+KEYWORDS = ["error", "failed", "异常"]  # 支持多个关键字
 
 # 黑名单关键字配置（匹配到关键字的行中如果包含黑名单关键字，则不发送该行）
-BLACKLIST_KEYWORDS = ["[GetModelRatio]", "[getTokenEncoder]", "securecookie", "测试", "| 200 |", "已忽略", "test"]  # 支持多个黑名单关键字
+BLACKLIST_KEYWORDS = ["timeout", "测试", "已忽略", "test"]  # 支持多个黑名单关键字
 
 # 日志文件路径
 LOG_FILE_PATH = "/root/one-api/oneapi.log"
@@ -20,6 +21,9 @@ LOG_FILE_PATH = "/root/one-api/oneapi.log"
 WECHAT_API_URL = "http://office.3-uni.net:7777/qianxun/httpapi"
 WECHAT_WXID = "wxid_alwc6m6hw4rs22"
 WECHAT_CHATROOM = "34412824967@chatroom"
+
+# 31位ID的正则表达式（匹配连续31个数字）
+ID_PATTERN = re.compile(r'\b\d{31}\b')
 
 
 def send_wechat_message(message):
@@ -73,48 +77,79 @@ def check_log_file():
         
         print(f"[{datetime.now()}] 读取日志文件,共 {len(lines)} 行")
         
-        # 检查所有匹配关键字的行
-        matched_lines = []
-        
+        # 步骤1: 查找所有匹配KEYWORDS的行
+        keyword_matched_lines = []
         for line in lines:
             line_stripped = line.strip()
             if not line_stripped:
                 continue
             
             # 检查是否匹配任何关键字
-            is_matched = False
-            matched_keyword = ""
             for keyword in KEYWORDS:
                 if keyword.lower() in line_stripped.lower():
-                    is_matched = True
-                    matched_keyword = keyword
-                    break  # 每行只匹配一次
-            
-            # 如果匹配到关键字，再检查是否包含黑名单关键字
-            if is_matched:
-                # 检查是否包含黑名单关键字
-                is_blacklisted = False
-                blacklist_keyword = ""
-                for bl_keyword in BLACKLIST_KEYWORDS:
-                    if bl_keyword.lower() in line_stripped.lower():
-                        is_blacklisted = True
-                        blacklist_keyword = bl_keyword
-                        break
-                
-                if is_blacklisted:
-                    print(f"[{datetime.now()}] 匹配到关键字 '{matched_keyword}' 但包含黑名单 '{blacklist_keyword}'，跳过: {line_stripped[:100]}...")
-                else:
-                    matched_lines.append(line_stripped)
-                    print(f"[{datetime.now()}] 匹配到关键字 '{matched_keyword}': {line_stripped[:100]}...")
+                    keyword_matched_lines.append(line_stripped)
+                    print(f"[{datetime.now()}] 匹配到关键字 '{keyword}': {line_stripped[:100]}...")
+                    break
         
-        # 如果发现匹配的行，发送所有匹配的行
-        if matched_lines:
-            # 将所有匹配的行合并成一条消息
-            message = '\n'.join(matched_lines)
-            print(f"[{datetime.now()}] 准备发送 {len(matched_lines)} 行匹配内容")
+        print(f"[{datetime.now()}] 共找到 {len(keyword_matched_lines)} 行匹配关键字")
+        
+        # 步骤2: 从匹配的行中提取31位ID，并重新筛选包含这些ID的所有行
+        extracted_ids = set()
+        for line in keyword_matched_lines:
+            # 查找31位ID
+            match = ID_PATTERN.search(line)
+            if match:
+                id_value = match.group()
+                extracted_ids.add(id_value)
+                print(f"[{datetime.now()}] 提取到ID: {id_value}")
+            else:
+                print(f"[{datetime.now()}] 未找到31位ID，忽略: {line[:100]}...")
+        
+        print(f"[{datetime.now()}] 共提取到 {len(extracted_ids)} 个唯一ID")
+        
+        # 如果没有提取到任何ID，直接返回
+        if not extracted_ids:
+            print(f"[{datetime.now()}] 没有提取到任何ID，无内容发送")
+            return
+        
+        # 从整个日志文件中筛选包含这些ID的所有行
+        id_related_lines = []
+        for line in lines:
+            line_stripped = line.strip()
+            if not line_stripped:
+                continue
+            
+            # 检查该行是否包含任何提取到的ID
+            for id_value in extracted_ids:
+                if id_value in line_stripped:
+                    id_related_lines.append(line_stripped)
+                    break
+        
+        print(f"[{datetime.now()}] 共找到 {len(id_related_lines)} 行包含提取的ID")
+        
+        # 步骤3: 过滤掉包含黑名单关键字的行
+        final_lines = []
+        for line in id_related_lines:
+            # 检查是否包含黑名单关键字
+            is_blacklisted = False
+            for bl_keyword in BLACKLIST_KEYWORDS:
+                if bl_keyword.lower() in line.lower():
+                    is_blacklisted = True
+                    print(f"[{datetime.now()}] 包含黑名单关键字 '{bl_keyword}'，跳过: {line[:100]}...")
+                    break
+            
+            if not is_blacklisted:
+                final_lines.append(line)
+        
+        print(f"[{datetime.now()}] 过滤黑名单后剩余 {len(final_lines)} 行")
+        
+        # 发送最终结果
+        if final_lines:
+            message = '\n'.join(final_lines)
+            print(f"[{datetime.now()}] 准备发送 {len(final_lines)} 行内容")
             send_wechat_message(message)
         else:
-            print(f"[{datetime.now()}] 未发现符合条件的内容")
+            print(f"[{datetime.now()}] 没有符合条件的内容需要发送")
             
     except FileNotFoundError:
         print(f"[{datetime.now()}] 日志文件不存在: {LOG_FILE_PATH}")
@@ -131,6 +166,7 @@ def main():
     print("=" * 60)
     print(f"监控文件: {LOG_FILE_PATH}")
     print(f"关键字: {KEYWORDS}")
+    print(f"黑名单关键字: {BLACKLIST_KEYWORDS}")
     print(f"微信机器人: {WECHAT_WXID}")
     print(f"目标群组: {WECHAT_CHATROOM}")
     print("=" * 60)
