@@ -45,6 +45,11 @@ def load_config():
             "@AI小朋",
             "@叶若涵"
         ],
+        "blacklist": [  # 新增: 黑名单配置
+            "无法回答这个问题",
+            "I cannot fulfill",
+            "违禁词示例"
+        ],
         "messages": {
             "empty_message_reply": "您好!我收到了您的@消息,请告诉我您想咨询什么内容。",
             "default_reply": "抱歉,我没有理解您的意思。",
@@ -76,7 +81,8 @@ config = load_config()
 WEIXIN_API_URL = config['weixin']['api_url']
 TRIGGER_KEYWORDS = config['trigger_keywords']
 MESSAGES = config['messages']
-BOT_WXID = config.get('bot_wxid', '')  # 新增:从配置读取bot_wxid
+BOT_WXID = config.get('bot_wxid', '')
+BLACKLIST = config.get('blacklist', []) # 新增: 读取黑名单
 
 # 存储会话ID的字典,格式: {from_wxid: conversation_id}
 conversations = {}
@@ -542,6 +548,18 @@ def execute_scheduled_task(task):
                 # 发送prompt到Dify获取回复
                 dify_reply = send_to_dify(prompt, group_wxid)
                 
+                # --- 新增: 定时任务黑名单检查 ---
+                is_blocked = False
+                for keyword in BLACKLIST:
+                    if keyword and keyword in dify_reply:
+                        logger.warning(f"Scheduled task '{task_name}' blocked. Dify reply contains blacklist keyword: '{keyword}'")
+                        is_blocked = True
+                        break
+                
+                if is_blocked:
+                    continue  # 跳过发送环节
+                # -------------------------------
+                
                 # 检查消息中是否包含图片或视频
                 has_generated_images = '![Generated Image]' in dify_reply
                 has_videos = '[点击下载视频]' in dify_reply
@@ -699,6 +717,20 @@ def wechat_callback():
                 logger.warning("Empty query text after processing")
                 return jsonify({"status": "error", "message": "Empty query text"})
             
+            # --- 新增: 黑名单检查逻辑 ---
+            # 如果Dify回复包含黑名单中的任何关键词,则直接忽略该消息
+            is_blocked = False
+            for keyword in BLACKLIST:
+                if keyword and keyword in dify_reply:
+                    logger.warning(f"Message blocked. Dify reply contains blacklist keyword: '{keyword}'")
+                    is_blocked = True
+                    break
+            
+            if is_blocked:
+                # 匹配到黑名单,直接返回成功状态但不发送消息
+                return jsonify({"status": "blocked", "message": "Content blocked by blacklist"})
+            # ---------------------------
+            
             # 8. 发送微信回复
             msg_id = data_info['msgId']  # 原消息ID(用于引用回复)
             
@@ -744,7 +776,8 @@ def health_check():
         "service": "wechat-dify-bridge",
         "timestamp": datetime.now().isoformat(),
         "config_loaded": True,
-        "bot_wxid_configured": bool(BOT_WXID)
+        "bot_wxid_configured": bool(BOT_WXID),
+        "blacklist_count": len(BLACKLIST)
     })
 
 if __name__ == '__main__':
@@ -763,6 +796,12 @@ if __name__ == '__main__':
     else:
         logger.warning("Bot wxid not configured in config.json, will use wxid from callback messages")
     
+    # 显示黑名单信息
+    if BLACKLIST:
+        logger.info(f"Blacklist loaded with {len(BLACKLIST)} keywords")
+    else:
+        logger.info("No blacklist keywords configured")
+        
     # 显示群聊映射配置
     group_mapping = config['dify'].get('group_mapping', {})
     if group_mapping:
