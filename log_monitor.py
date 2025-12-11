@@ -9,7 +9,7 @@ from datetime import datetime
 
 # ===== 全局配置 =====
 # 关键字配置（可以根据需要修改）
-KEYWORDS = ["[error]", "异常"]  # 支持多个关键字
+KEYWORDS = ["[error]", "异常123"]  # 支持多个关键字
 
 # 黑名单关键字配置（匹配到关键字的行中如果包含黑名单关键字，则不发送该行）
 BLACKLIST_KEYWORDS = ["timeout", "测试", "已忽略", "test"]  # 支持多个黑名单关键字
