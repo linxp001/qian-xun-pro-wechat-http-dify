@@ -462,8 +462,11 @@ def process_group_message(message_data, bot_wxid):
     # 正则匹配: 以[开头, 两个中文字符, 以]结尾
     is_simple_emoji = bool(re.match(r'^\[[\u4e00-\u9fa5]{2}\]$', msg.strip()))
     
-    if not is_mentioned and not has_keyword and not is_simple_emoji:
-        return None, None  # 既没@也没关键词且不是表情包,忽略
+    # 不再忽略任何群消息，全部进入 Dify 处理
+    # is_mentioned / has_keyword 只作为“语义信息”保留，不作为拦截条件
+
+    #if not is_mentioned and not has_keyword and not is_simple_emoji:
+    #    return None, None  # 既没@也没关键词且不是表情包,忽略
     
     # 2. 尝试解析XML格式的引用消息
     parsed_refer = parse_refer_message(msg)
@@ -474,7 +477,8 @@ def process_group_message(message_data, bot_wxid):
     else:
         # 3. 移除消息中的@提及(如"@机器人 你好"→"你好")
         # 匹配@后的用户名(支持中文/英文/数字),并替换为空
-        processed_msg = re.sub(r'@[\u4e00-\u9fa5A-Za-z0-9_. ]+\s*', '', msg).strip()
+        #processed_msg = re.sub(r'@[\u4e00-\u9fa5A-Za-z0-9_. ]+\s*', '', msg).strip()
+        processed_msg = msg.strip()
     
     # 4. 如果是空消息(如仅@机器人但无内容),直接回复
     if not processed_msg:
@@ -690,9 +694,9 @@ def wechat_callback():
             if event_type == 10008:
                 logger.info("Processing group message (event=10008)")
                 query_text, direct_reply = process_group_message(message_data, effective_bot_wxid)
-                if query_text is None and direct_reply is None:  # 未触发,忽略
-                    logger.info("Ignoring group message (not triggered)")
-                    return jsonify({"status": "ignored"})
+                #if query_text is None and direct_reply is None:  # 未触发,忽略
+                #    logger.info("Ignoring group message (not triggered)")
+                #    return jsonify({"status": "ignored"})
                 target_wxid = data_info['fromWxid']  # 群ID(回复到群里)
             
             # 5.2 私聊消息(event=10009)
