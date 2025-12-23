@@ -24,6 +24,7 @@ def load_config():
     config_path = 'config.json'
     default_config = {
         "bot_wxid": "",  # 新增:机器人wxid配置
+        "image_host_token": "1c17b11693cb5ec63859b091c5b9c1b2", # 新增: 图床Token
         "dify": {
             "default": {
                 "api_url": "http://192.168.1.25:54321/v1/chat-messages",
@@ -62,6 +63,9 @@ def load_config():
         if os.path.exists(config_path):
             with open(config_path, 'r', encoding='utf-8') as f:
                 config = json.load(f)
+                # 确保新配置项存在
+                if "image_host_token" not in config:
+                    config["image_host_token"] = default_config["image_host_token"]
                 logger.info(f"Configuration loaded from {config_path}")
                 return config
         else:
@@ -83,6 +87,7 @@ TRIGGER_KEYWORDS = config['trigger_keywords']
 MESSAGES = config['messages']
 BOT_WXID = config.get('bot_wxid', '')
 BLACKLIST = config.get('blacklist', []) # 新增: 读取黑名单
+IMAGE_HOST_TOKEN = config.get('image_host_token', "1c17b11693cb5ec63859b091c5b9c1b2") # 新增: 图床Token
 
 # 存储会话ID的字典,格式: {from_wxid: conversation_id}
 conversations = {}
@@ -199,6 +204,53 @@ def send_to_dify(query_text, from_wxid, reset_conversation=False):
         except requests.exceptions.RequestException as e:
             logger.error(f"Dify API request failed: {str(e)}")
             return f"{MESSAGES['service_unavailable']}{str(e)}"
+
+def upload_image_to_host(image_path):
+    """
+    上传本地图片到图床
+    """
+    url = "http://img.3-uni.net/api/index.php"
+    token = IMAGE_HOST_TOKEN
+    
+    logger.info(f"Uploading image to host: {image_path}")
+    
+    try:
+        if not os.path.exists(image_path):
+            logger.error(f"Image file not found: {image_path}")
+            return "上传图床失败: 文件不存在"
+
+        with open(image_path, 'rb') as f:
+            files = {'image': f}
+            data = {'token': token}
+            response = requests.post(url, files=files, data=data)
+            
+            if response.status_code == 200:
+                # 假设图床直接返回URL或JSON中包含URL
+                # 尝试解析JSON，如果失败则直接使用文本
+                try:
+                    res_json = response.json()
+                    # 根据实际API返回结构调整，这里假设如果返回JSON，url字段在data里或者直接是url
+                    if isinstance(res_json, dict):
+                        if 'url' in res_json:
+                            return res_json['url']
+                        elif 'data' in res_json and isinstance(res_json['data'], dict) and 'url' in res_json['data']:
+                            return res_json['data']['url']
+                        elif 'data' in res_json and isinstance(res_json['data'], str):
+                            return res_json['data']
+                except:
+                    pass
+                
+                # 如果不是JSON或解析失败，直接返回响应文本
+                result_url = response.text.strip()
+                logger.info(f"Image uploaded successfully: {result_url}")
+                return result_url
+            else:
+                logger.error(f"Image upload failed with status code: {response.status_code}, response: {response.text}")
+                return "上传图床失败"
+                
+    except Exception as e:
+        logger.error(f"Error uploading image: {str(e)}")
+        return "上传图床失败"
 
 def send_weixin_reply(target_wxid, message_content, msg_id, bot_wxid):
     """
@@ -673,11 +725,19 @@ def wechat_callback():
             
             # 3. 检查是否是XML引用消息(包含<title>和<refermsg><content>标签)
             msg_content = data_info.get('msg', '')
+            msg_type = data_info.get('msgType')
             is_refer_message = '<title>' in msg_content and '<refermsg>' in msg_content and '<content>' in msg_content
             
-            # 4. 过滤非文本消息(仅处理msgType=1,但XML引用消息除外)
-            if data_info.get('msgType') != 1 and not is_refer_message:
-                logger.info(f"Ignoring non-text message (msgType={data_info.get('msgType')})")
+            # 检查是否为特定的解密图片消息
+            # 格式: [pic=C:\Users\...\xxx.jpg,isDecrypt=1]
+            image_match = None
+            if msg_type == 3:
+                image_match = re.search(r'\[pic=(.*?),isDecrypt=1\]', msg_content)
+            
+            # 4. 过滤非文本消息(仅处理msgType=1,但XML引用消息和特定图片除外)
+            # 修改: 允许 msgType=3 且匹配特定格式的消息通过
+            if msg_type != 1 and not is_refer_message and not image_match:
+                logger.info(f"Ignoring non-text message (msgType={msg_type})")
                 return jsonify({"status": "ignored"})
             
             # 5. 过滤自己发送的消息(msgSource=1是机器人自己发的)
@@ -690,8 +750,17 @@ def wechat_callback():
             target_wxid = ""  # 回复的目标(群ID/好友wxid)
             direct_reply = None  # 直接回复内容(不经过Dify)
             
+            # 特殊处理: 如果是解密图片消息
+            if image_match:
+                logger.info("Processing decrypted image message")
+                image_path = image_match.group(1)
+                # 上传图片并获取URL
+                query_text = upload_image_to_host(image_path)
+                target_wxid = data_info['fromWxid']
+                # 图片消息直接作为query_text发送给Dify，跳过常规的文本处理逻辑
+            
             # 5.1 群聊消息(event=10008)
-            if event_type == 10008:
+            elif event_type == 10008:
                 logger.info("Processing group message (event=10008)")
                 query_text, direct_reply = process_group_message(message_data, effective_bot_wxid)
                 #if query_text is None and direct_reply is None:  # 未触发,忽略
@@ -826,4 +895,3 @@ if __name__ == '__main__':
         if scheduler:
             scheduler.shutdown()
         logger.info("Server stopped")
-
