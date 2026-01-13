@@ -88,6 +88,7 @@ MESSAGES = config['messages']
 BOT_WXID = config.get('bot_wxid', '')
 BLACKLIST = config.get('blacklist', []) # 新增: 读取黑名单
 IMAGE_HOST_TOKEN = config.get('image_host_token', "1c17b11693cb5ec63859b091c5b9c1b2") # 新增: 图床Token
+BLACKLISTS = config.get('blacklists', []) # 新增: 读取微信用户黑名单
 
 # 存储会话ID的字典,格式: {from_wxid: conversation_id}
 conversations = {}
@@ -505,10 +506,12 @@ def process_group_message(message_data, bot_wxid):
     """
     data_info = message_data['data']['data']
     msg = data_info['msg']
+    finalFromWxid = data_info['finalFromWxid']
     
     # 1. 检查是否@机器人 或 消息包含关键词
     is_mentioned = bot_wxid in data_info.get('atWxidList', [])
     has_keyword = any(keyword in msg for keyword in TRIGGER_KEYWORDS)
+    is_blacked = finalFromWxid in BLACKLISTS
     
     # 检查是否为简单的表情符号: [两个汉字]
     # 正则匹配: 以[开头, 两个中文字符, 以]结尾
@@ -519,6 +522,9 @@ def process_group_message(message_data, bot_wxid):
 
     #if not is_mentioned and not has_keyword and not is_simple_emoji:
     #    return None, None  # 既没@也没关键词且不是表情包,忽略
+    
+    if is_blacked:
+        return None, None  # 发言的微信用户处于黑名单中,忽略
     
     # 2. 尝试解析XML格式的引用消息
     parsed_refer = parse_refer_message(msg)
