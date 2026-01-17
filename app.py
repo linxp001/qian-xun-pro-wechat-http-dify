@@ -880,6 +880,11 @@ if __name__ == '__main__':
         logger.info(f"Blacklist loaded with {len(BLACKLIST)} keywords")
     else:
         logger.info("No blacklist keywords configured")
+
+    if BLACKLISTS:
+        logger.info(f"Blacklists loaded with {len(BLACKLISTS)} keywords")
+    else:
+        logger.info("No blacklists configured")
         
     # 显示群聊映射配置
     group_mapping = config['dify'].get('group_mapping', {})
@@ -901,4 +906,3 @@ if __name__ == '__main__':
         if scheduler:
             scheduler.shutdown()
         logger.info("Server stopped")
-
