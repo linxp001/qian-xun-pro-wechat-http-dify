@@ -430,11 +430,12 @@ def extract_and_send_images(message_content, target_wxid, bot_wxid):
     logger.info(f"Successfully sent {success_count}/{len(matches)} image(s)")
     return success_count
 
+"""
 def extract_and_send_videos(message_content, target_wxid, bot_wxid):
-    """
-    从消息中提取[点击下载视频](URL)格式的视频URL并发送
-    返回: 发送的视频数量
-    """
+
+    ##从消息中提取[点击下载视频](URL)格式的视频URL并发送
+    ##返回: 发送的视频数量
+
     # 匹配 [点击下载视频](URL) 格式
     pattern = r'\[点击下载视频\]\((https?://[^\)]+)\)'
     matches = re.findall(pattern, message_content)
@@ -455,7 +456,58 @@ def extract_and_send_videos(message_content, target_wxid, bot_wxid):
     
     logger.info(f"Successfully sent {success_count}/{len(matches)} video(s)")
     return success_count
+"""
 
+def extract_and_send_videos(message_content, target_wxid, bot_wxid):
+    """
+    从消息中提取视频URL并发送
+    支持格式：
+    1. [点击下载视频](URL)
+    2. <video src="URL" ...></video>
+    返回: 发送的视频数量
+    """
+    import re
+    
+    # 初始化视频URL列表
+    video_urls = []
+    
+    # 1. 匹配 [点击下载视频](URL) 格式
+    pattern1 = r'$$点击下载视频$$$$(https?://[^$$]+)\)'
+    matches1 = re.findall(pattern1, message_content)
+    if matches1:
+        logger.info(f"Found {len(matches1)} video(s) in [点击下载视频] format")
+        video_urls.extend(matches1)
+    
+    # 2. 匹配 <video src="URL" ...> 格式
+    pattern2 = r'<video[^>]*src="(https?://[^"]+)"[^>]*>'
+    matches2 = re.findall(pattern2, message_content)
+    if matches2:
+        logger.info(f"Found {len(matches2)} video(s) in HTML video tag format")
+        video_urls.extend(matches2)
+    
+    # 去重（避免同一视频URL被多次发送）
+    unique_urls = []
+    for url in video_urls:
+        if url not in unique_urls:
+            unique_urls.append(url)
+    
+    if not unique_urls:
+        logger.info("No videos found in message")
+        return 0
+    
+    logger.info(f"Total found {len(unique_urls)} unique video(s)")
+    
+    success_count = 0
+    for idx, video_url in enumerate(unique_urls, 1):
+        logger.info(f"Sending video {idx}/{len(unique_urls)}: {video_url[:100]}...")
+        if send_weixin_file(target_wxid, video_url, bot_wxid, file_extension='.mp4'):
+            success_count += 1
+        else:
+            logger.error(f"Failed to send video {idx}/{len(unique_urls)}")
+    
+    logger.info(f"Successfully sent {success_count}/{len(unique_urls)} video(s)")
+    return success_count
+      
 def parse_refer_message(msg):
     """
     解析XML格式的引用消息,提取title和refermsg中的content
@@ -624,7 +676,8 @@ def execute_scheduled_task(task):
                 
                 # 检查消息中是否包含图片或视频
                 has_generated_images = '![Generated Image]' in dify_reply
-                has_videos = '[点击下载视频]' in dify_reply
+                ##has_videos = '[点击下载视频]' in dify_reply
+                has_videos = any(x in dify_reply for x in ['[点击下载视频]', 'I generated a video with the prompt'])
                 
                 if has_generated_images or has_videos:
                     # 如果包含生成的图片或视频,只发送图片/视频,不发送文本消息
@@ -815,7 +868,8 @@ def wechat_callback():
             
             # 检查消息中是否包含图片或视频
             has_generated_images = '![Generated Image]' in dify_reply
-            has_videos = '[点击下载视频]' in dify_reply
+            ##has_videos = '[点击下载视频]' in dify_reply
+            has_videos = any(x in dify_reply for x in ['[点击下载视频]', 'I generated a video with the prompt'])
             
             # 检查回复是否为[两个汉字]的表情格式
             is_output_emoji = bool(re.match(r'^\[[\u4e00-\u9fa5]{2}\]$', dify_reply.strip()))
