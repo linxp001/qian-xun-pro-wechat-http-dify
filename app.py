@@ -405,18 +405,23 @@ def send_weixin_file(target_wxid, file_url, bot_wxid, file_extension='.mp4'):
         return False
 
 def extract_and_send_images(message_content, target_wxid, bot_wxid):
-    """
-    从消息中提取![Generated Image](URL)格式的图片URL并发送
-    返回: 发送的图片数量
-    """
+
+    ##从消息中提取![Generated Image](URL)格式的图片URL并发送
+    ##返回: 发送的图片数量
+
     # 匹配 ![Generated Image](URL) 格式
     pattern = r'!\[Generated Image\]\((https?://[^\)]+)\)'
     matches = re.findall(pattern, message_content)
     
     if not matches:
+        # 匹配 ![生成的图片](URL) 格式
+        pattern = r'!\[生成的图片\]\((https?://[^\)]+)\)'
+        matches = re.findall(pattern, message_content)
+    
+    if not matches:
         logger.info("No generated images found in message")
         return 0
-    
+
     logger.info(f"Found {len(matches)} generated image(s) in message")
     
     success_count = 0
@@ -675,8 +680,9 @@ def execute_scheduled_task(task):
                 # -------------------------------
                 
                 # 检查消息中是否包含图片或视频
-                has_generated_images = '![Generated Image]' in dify_reply
+                ##has_generated_images = '![Generated Image]' in dify_reply
                 ##has_videos = '[点击下载视频]' in dify_reply
+                has_generated_images = any(x in dify_reply for x in ['![Generated Image]', '![生成的图片]'])
                 has_videos = any(x in dify_reply for x in ['[点击下载视频]', 'I generated a video with the prompt'])
                 
                 if has_generated_images or has_videos:
@@ -867,8 +873,9 @@ def wechat_callback():
             msg_id = data_info['msgId']  # 原消息ID(用于引用回复)
             
             # 检查消息中是否包含图片或视频
-            has_generated_images = '![Generated Image]' in dify_reply
+            ##has_generated_images = '![Generated Image]' in dify_reply
             ##has_videos = '[点击下载视频]' in dify_reply
+            has_generated_images = any(x in dify_reply for x in ['![Generated Image]', '![生成的图片]'])
             has_videos = any(x in dify_reply for x in ['[点击下载视频]', 'I generated a video with the prompt'])
             
             # 检查回复是否为[两个汉字]的表情格式
