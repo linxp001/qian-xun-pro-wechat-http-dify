@@ -489,6 +489,12 @@ def extract_and_send_videos(message_content, target_wxid, bot_wxid):
     if matches2:
         logger.info(f"Found {len(matches2)} video(s) in HTML video tag format")
         video_urls.extend(matches2)
+        
+    pattern3 = r'http://[^\s]*generated_video\.mp4[^\s]*'
+    matches3 = re.findall(pattern3, message_content)
+    if matches3:
+        logger.info(f"Found {len(matches3)} video(s) in HTML video mp4 format")
+        video_urls.extend(matches3)
     
     # 去重（避免同一视频URL被多次发送）
     unique_urls = []
@@ -683,7 +689,7 @@ def execute_scheduled_task(task):
                 ##has_generated_images = '![Generated Image]' in dify_reply
                 ##has_videos = '[点击下载视频]' in dify_reply
                 has_generated_images = any(x in dify_reply for x in ['![Generated Image]', '![生成的图片]'])
-                has_videos = any(x in dify_reply for x in ['[点击下载视频]', 'I generated a video with the prompt'])
+                has_videos = any(x in dify_reply for x in ['[点击下载视频]', 'I generated a video with the prompt', 'generated_video.mp4'])
                 
                 if has_generated_images or has_videos:
                     # 如果包含生成的图片或视频,只发送图片/视频,不发送文本消息
@@ -876,7 +882,7 @@ def wechat_callback():
             ##has_generated_images = '![Generated Image]' in dify_reply
             ##has_videos = '[点击下载视频]' in dify_reply
             has_generated_images = any(x in dify_reply for x in ['![Generated Image]', '![生成的图片]'])
-            has_videos = any(x in dify_reply for x in ['[点击下载视频]', 'I generated a video with the prompt'])
+            has_videos = any(x in dify_reply for x in ['[点击下载视频]', 'I generated a video with the prompt', 'generated_video.mp4'])
             
             # 检查回复是否为[两个汉字]的表情格式
             is_output_emoji = bool(re.match(r'^\[[\u4e00-\u9fa5]{2}\]$', dify_reply.strip()))
