@@ -490,7 +490,8 @@ def extract_and_send_videos(message_content, target_wxid, bot_wxid):
         logger.info(f"Found {len(matches2)} video(s) in HTML video tag format")
         video_urls.extend(matches2)
         
-    pattern3 = r'http://[^\s]*generated_video\.mp4[^\s]*'
+    #pattern3 = r'http://[^\s]*generated_video\.mp4[^\s]*'
+    pattern3 = r'http://[^\s"\']*generated_video\.mp4[^\s"\']*'
     matches3 = re.findall(pattern3, message_content)
     if matches3:
         logger.info(f"Found {len(matches3)} video(s) in HTML video mp4 format")
