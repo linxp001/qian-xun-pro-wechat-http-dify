@@ -320,16 +320,24 @@ def send_weixin_text(target_wxid, message_content, bot_wxid):
         logger.error(f"WeChat API request failed: {str(e)}")
         return False
 
+def _preview_image_path_for_log(path):
+    """日志中缩短 path（本地路径/URL/base64），避免刷屏。"""
+    if path.startswith('base64,'):
+        payload = path[7:57]
+        return f"base64,{payload}..."
+    return path[:120] + ('...' if len(path) > 120 else '')
+
+
 def send_weixin_image(target_wxid, image_url, bot_wxid):
     """
-    发送微信图片消息(通过URL)
+    发送微信图片消息。path 可为本地路径、网络直链，或以 base64, 开头的 Base64 数据（千寻 sendImage 约定）。
     """
     import hashlib
     import time
     
-    # 根据URL和时间戳生成唯一文件名
+    # 根据 path 和时间戳生成唯一文件名
     timestamp = str(int(time.time() * 1000))
-    url_hash = hashlib.md5(image_url.encode()).hexdigest()[:8]
+    url_hash = hashlib.md5(image_url.encode('utf-8')).hexdigest()[:8]
     file_name = f"image_{timestamp}_{url_hash}.jpg"
     
     data = {
@@ -346,7 +354,7 @@ def send_weixin_image(target_wxid, image_url, bot_wxid):
     }
     
     try:
-        logger.info(f"Sending image to {target_wxid}: {image_url}")
+        logger.info(f"Sending image to {target_wxid}: {_preview_image_path_for_log(image_url)}")
         response = requests.post(WEIXIN_API_URL, json=data, params=params)
         response.raise_for_status()
         
@@ -361,6 +369,55 @@ def send_weixin_image(target_wxid, image_url, bot_wxid):
     except requests.exceptions.RequestException as e:
         logger.error(f"WeChat API request failed: {str(e)}")
         return False
+
+
+def message_contains_sendable_base64_image(message_content):
+    """
+    判断回复文本中是否包含可作为图片发送的 Base64（data URI 或 base64, 前缀格式）。
+    """
+    if not message_content:
+        return False
+    if 'data:image/' in message_content and 'base64,' in message_content:
+        return True
+    # 独立片段：必须以 base64, 开头且后跟足够长的 Base64 字符（避免误判普通正文）
+    if re.search(r'(?:^|[\s\(])base64,[A-Za-z0-9+/=\s]{80,}', message_content):
+        return True
+    return False
+
+
+def extract_base64_image_paths(message_content):
+    """
+    从消息中提取千寻 sendImage 所需的 path 列表（统一为 base64,<payload>）。
+    支持：data:image/...;base64,... 以及单独出现的 base64,iVBORw0KGgo...
+    返回不重复的 path 列表。
+    """
+    if not message_content:
+        return []
+    paths = []
+    seen = set()
+
+    def add_base64_payload(raw_b64):
+        raw_b64 = re.sub(r'\s+', '', raw_b64)
+        if len(raw_b64) < 50:
+            return
+        p = f'base64,{raw_b64}'
+        if p not in seen:
+            seen.add(p)
+            paths.append(p)
+
+    # data:image/<mime>;base64,<data>
+    for m in re.finditer(
+        r'data:image/[a-zA-Z0-9.+-]+;base64,([A-Za-z0-9+/=\s]+)',
+        message_content,
+        re.IGNORECASE,
+    ):
+        add_base64_payload(m.group(1))
+
+    # 已是 base64,<payload>（前面不能是 ;，避免与 data URI 中 ;base64, 重复匹配）
+    for m in re.finditer(r'(?:^|[\s\(])base64,([A-Za-z0-9+/=\s]{50,})', message_content):
+        add_base64_payload(m.group(1))
+
+    return paths
 
 def send_weixin_file(target_wxid, file_url, bot_wxid, file_extension='.mp4'):
     """
@@ -407,6 +464,7 @@ def send_weixin_file(target_wxid, file_url, bot_wxid, file_extension='.mp4'):
 def extract_and_send_images(message_content, target_wxid, bot_wxid):
 
     ##从消息中提取![Generated Image](URL)格式的图片URL并发送
+    ##同时支持 data URI / base64, 形式的图片，经 sendImage 发送（path 为 base64,<数据>）
     ##返回: 发送的图片数量
 
     # 匹配 ![Generated Image](URL) 格式
@@ -418,21 +476,33 @@ def extract_and_send_images(message_content, target_wxid, bot_wxid):
         pattern = r'!\[生成的图片\]\((https?://[^\)]+)\)'
         matches = re.findall(pattern, message_content)
     
-    if not matches:
+    base64_paths = extract_base64_image_paths(message_content)
+    total_count = len(matches) + len(base64_paths)
+
+    if total_count == 0:
         logger.info("No generated images found in message")
         return 0
 
-    logger.info(f"Found {len(matches)} generated image(s) in message")
+    logger.info(f"Found {len(matches)} URL image(s) and {len(base64_paths)} base64 image(s)")
     
     success_count = 0
-    for idx, image_url in enumerate(matches, 1):
-        logger.info(f"Sending image {idx}/{len(matches)}: {image_url[:100]}...")
+    idx = 0
+    for image_url in matches:
+        idx += 1
+        logger.info(f"Sending image {idx}/{total_count}: {image_url[:100]}...")
         if send_weixin_image(target_wxid, image_url, bot_wxid):
             success_count += 1
         else:
-            logger.error(f"Failed to send image {idx}/{len(matches)}")
+            logger.error(f"Failed to send image {idx}/{total_count}")
+    for b64_path in base64_paths:
+        idx += 1
+        logger.info(f"Sending image {idx}/{total_count}: {_preview_image_path_for_log(b64_path)}")
+        if send_weixin_image(target_wxid, b64_path, bot_wxid):
+            success_count += 1
+        else:
+            logger.error(f"Failed to send image {idx}/{total_count}")
     
-    logger.info(f"Successfully sent {success_count}/{len(matches)} image(s)")
+    logger.info(f"Successfully sent {success_count}/{total_count} image(s)")
     return success_count
 
 """
@@ -689,7 +759,8 @@ def execute_scheduled_task(task):
                 # 检查消息中是否包含图片或视频
                 ##has_generated_images = '![Generated Image]' in dify_reply
                 ##has_videos = '[点击下载视频]' in dify_reply
-                has_generated_images = any(x in dify_reply for x in ['![Generated Image]', '![生成的图片]'])
+                has_generated_images = any(x in dify_reply for x in ['![Generated Image]', '![生成的图片]']) \
+                    or message_contains_sendable_base64_image(dify_reply)
                 has_videos = any(x in dify_reply for x in ['[点击下载视频]', 'I generated a video with the prompt', 'generated_video.mp4'])
                 
                 if has_generated_images or has_videos:
@@ -882,7 +953,8 @@ def wechat_callback():
             # 检查消息中是否包含图片或视频
             ##has_generated_images = '![Generated Image]' in dify_reply
             ##has_videos = '[点击下载视频]' in dify_reply
-            has_generated_images = any(x in dify_reply for x in ['![Generated Image]', '![生成的图片]'])
+            has_generated_images = any(x in dify_reply for x in ['![Generated Image]', '![生成的图片]']) \
+                or message_contains_sendable_base64_image(dify_reply)
             has_videos = any(x in dify_reply for x in ['[点击下载视频]', 'I generated a video with the prompt', 'generated_video.mp4'])
             
             # 检查回复是否为[两个汉字]的表情格式
