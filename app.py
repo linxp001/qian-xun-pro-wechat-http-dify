@@ -49,6 +49,7 @@ def load_config():
         "blacklist": [  # 新增: 黑名单配置
             "无法回答这个问题",
             "I cannot fulfill",
+            "发送成功",
             "违禁词示例"
         ],
         "messages": {
